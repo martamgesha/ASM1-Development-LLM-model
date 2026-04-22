@@ -278,8 +278,7 @@ class Llama(LlamaPreTrainedModel):
             logits, _ = self(idx_cond)
             logits = logits[:, -1, :] # crop to just the final time step
             # todo
-            raise NotImplementedError
-
+            
             if temperature == 0.0:
                 # select the single most likely index
                 idx_next = None
