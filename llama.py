@@ -32,19 +32,12 @@ class RMSNorm(torch.nn.Module):
 
     def _norm(self, x):
         """
-        Compute the root mean square normalization. Use Equation 4 under
-        Section 4 of https://arxiv.org/abs/1910.07467 as a reference. Add 
-        the given epsilon value (self.eps) to the tensor's norm (i.e. inside
-        the square root in Equation 4) before normalizing the tensor.
-
-        Args:
-            x (torch.Tensor): The input tensor.
-
-        Returns:
-            torch.Tensor: The normalized tensor.
+        Compute the root mean square normalization.
         """
-        # todo
-        raise NotImplementedError
+        # Tính trung bình bình phương theo chiều cuối cùng (hidden dimension)
+        variance = x.pow(2).mean(-1, keepdim=True)
+        # Nhân x với nghịch đảo căn bậc hai của variance + eps
+        return x * torch.rsqrt(variance + self.eps)
 
     def forward(self, x):
         """
@@ -84,17 +77,22 @@ class Attention(nn.Module):
                                        key: torch.Tensor,
                                        value: torch.Tensor) -> torch.Tensor:
         '''
-        Jointly compute Scaled Dot Product Attention (see Section 3.2.1 in
-        https://arxiv.org/abs/1706.03762 for details). The query, key, and
-        value tensors each have shape (bs, n_local_heads, seqlen, head_dim).
-        An optimal implemention will jointly computing attention for multiple
-        heads (n_local_heads of them) at once using matrix/tensor operations.
-
-        Make sure to use attention_dropout (self.attn_dropout) on the computed
-        attention matrix before applying it to the value tensor.
+        Jointly compute Scaled Dot Product Attention
         '''
-        # todo
-        raise NotImplementedError
+        # Tính Q * K^T / sqrt(d_k)
+        # key.transpose(-2, -1) đổi shape thành (bs, n_local_heads, head_dim, seqlen)
+        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(self.head_dim)
+        
+        # Apply softmax theo chiều seqlen của Key
+        scores = F.softmax(scores, dim=-1)
+        
+        # Apply attention dropout theo yêu cầu
+        scores = self.attn_dropout(scores)
+        
+        # Nhân với Value: (bs, n_local_heads, seqlen, seqlen) x (bs, n_local_heads, seqlen, head_dim)
+        output = torch.matmul(scores, value)
+        
+        return output
 
     def forward(
         self,
@@ -183,21 +181,27 @@ class LlamaLayer(nn.Module):
 
     def forward(self, x):
         '''
-        This is the forward pass of the basic transformer building block. This is a
-        modernized version of the block shown on the left of Figure 1 on
-        https://arxiv.org/pdf/1706.03762.pdf.
-
-        The transformer block should consist of:
-        1) layer normalization of the input (via Root Mean Square layer normalization)
-        2) self-attention on the layer-normalized input
-        3) a residual connection (i.e., add the input to the output of the self-attention)
-        3) layer normalization on the output of the self-attention
-        4) a feed-forward network on the layer-normalized output of the self-attention
-        5) add a residual connection from the unnormalized self-attention output to the
-           output of the feed-forward network
+        This is the forward pass of the basic transformer building block.
         '''
-        # todo
-        raise NotImplementedError
+        # 1) layer normalization of the input
+        norm_x = self.attention_norm(x)
+        
+        # 2) self-attention on the layer-normalized input
+        attn_output = self.attention(norm_x)
+        
+        # 3) a residual connection
+        h = x + attn_output
+        
+        # 4) layer normalization on the output of the self-attention
+        norm_h = self.ffn_norm(h)
+        
+        # 5) a feed-forward network on the layer-normalized output
+        ffn_output = self.feed_forward(norm_h)
+        
+        # 6) add a residual connection
+        out = h + ffn_output
+        
+        return out
 
 class Llama(LlamaPreTrainedModel):
     def __init__(self, config: LlamaConfig):

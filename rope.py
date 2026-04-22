@@ -50,10 +50,6 @@ def apply_rotary_emb(
 
     _, seqlen, _, _ = query.shape
     device = query.device
-    # todo
-    #
-    # Please refer to slide 22 in https://phontron.com/class/anlp2024/assets/slides/anlp-05-transformers.pdf
-    # and Section 3 in https://arxiv.org/abs/2104.09864.
 
     # reshape xq and xk to match the complex representation
     query_real, query_imag = query.float().reshape(query.shape[:-1] + (-1, 2)).unbind(-1)
@@ -63,13 +59,45 @@ def apply_rotary_emb(
 
     # First, compute the trigonometric values in the second and fourth columns in
     # slide 22 (linked above).
+    
+    # 1. Tính toán các tần số nghịch đảo (inverse frequencies)
+    # Công thức: theta_i = 10000 ^ (-2(i-1)/head_dim)
+    inv_freq = 1.0 / (theta ** (torch.arange(0, head_dim, 2, device=device).float() / head_dim))
+    
+    # 2. Tạo vector vị trí (m = 0, 1, ..., seqlen - 1)
+    t = torch.arange(seqlen, device=device).float()
+    
+    # 3. Tính m * theta (sử dụng outer product) -> shape: (seqlen, head_dim // 2)
+    freqs = torch.outer(t, inv_freq)
+    
+    # 4. Tính cos và sin
+    freqs_cos = torch.cos(freqs)
+    freqs_sin = torch.sin(freqs)
 
     # Then, combine these trigonometric values with the tensors query_real, query_imag,
     # key_real, and key_imag.
+    
+    # 5. Dùng hàm helper để broadcast cos và sin khớp với shape của query_real/key_real
+    # shape sau khi broadcast: (1, seqlen, 1, head_dim // 2)
+    cos = reshape_for_broadcast(freqs_cos, query_real)
+    sin = reshape_for_broadcast(freqs_sin, query_real)
+    
+    # 6. Thực hiện phép nhân số phức (Complex multiplication)
+    # (x + iy) * (cos + i*sin) = (x*cos - y*sin) + i*(x*sin + y*cos)
+    query_out_real = query_real * cos - query_imag * sin
+    query_out_imag = query_real * sin + query_imag * cos
+    
+    key_out_real = key_real * cos - key_imag * sin
+    key_out_imag = key_real * sin + key_imag * cos
 
-    raise NotImplementedError
+    # 7. Ghép phần thực và ảo lại với nhau, sau đó reshape về kích thước ban đầu
+    # torch.stack sẽ tạo ra chiều cuối cùng có size 2, sau đó reshape sẽ gộp nó lại thành head_dim
+    query_out = torch.stack([query_out_real, query_out_imag], dim=-1).reshape(query.shape)
+    key_out = torch.stack([key_out_real, key_out_imag], dim=-1).reshape(key.shape)
 
-    query_out = None
-    key_out = None
+    # 8. Đưa kiểu dữ liệu về giống ban đầu để tránh lỗi khi train/inference
+    query_out = query_out.type_as(query)
+    key_out = key_out.type_as(key)
+
     # Return the rotary position embeddings for the query and key tensors
     return query_out, key_out

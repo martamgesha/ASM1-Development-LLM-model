@@ -48,11 +48,25 @@ class LlamaEmbeddingClassifier(torch.nn.Module):
 	def forward(self, input_ids):
 		'''
 		1) Find the hidden state after the final token of the input sequence
-		2) Apply dropout (self.dropout) to the hidden state at training time to mitigate
-		   overfitting.
-		2) Pass this through the classifier head (self.classifier_head), which will return
-		   logits (unnormalized probabilities) over all classes.
-		3) Take the log-softmax of the logits and return log-probabilities over all classes.
+		2) Apply dropout (self.dropout) to the hidden state at training time to mitigate overfitting.
+		3) Pass this through the classifier head (self.classifier_head), which will return logits...
+		4) Take the log-softmax of the logits and return log-probabilities over all classes.
 		'''
-		# todo
-		raise NotImplementedError
+		# Lấy output từ Llama model. Hàm forward của Llama trả về (logits, hidden_states)
+		_, hidden_states = self.llama(input_ids)
+		
+		# 1) Trích xuất hidden state của token cuối cùng
+		# hidden_states có shape: (batch_size, seq_len, hidden_dim)
+		# Lấy index -1 theo chiều seq_len để lấy token cuối
+		final_hidden_state = hidden_states[:, -1, :]
+		
+		# 2) Apply dropout để giảm overfitting trong quá trình train
+		dropped_out = self.dropout(final_hidden_state)
+		
+		# 3) Đưa qua classifier head (Linear layer) để lấy phân phối điểm số chưa chuẩn hóa (logits)
+		logits = self.classifier_head(dropped_out)
+		
+		# 4) Tính log-softmax theo chiều cuối cùng (num_labels) để ra xác suất
+		log_probabilities = F.log_softmax(logits, dim=-1)
+		
+		return log_probabilities
